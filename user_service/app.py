@@ -194,5 +194,5 @@ def create_admin(name, password):
 
 
 if __name__ == "__main__":
-    start_grpc_server(app, int(os.getenv("GRPC_PORT", "50051")))
+    grpc_srv = start_grpc_server(app, int(os.getenv("GRPC_PORT", "50051")))
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5001")))

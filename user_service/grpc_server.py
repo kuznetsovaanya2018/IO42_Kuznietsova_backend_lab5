@@ -52,6 +52,6 @@ def start_grpc_server(app, port):
         reflection.SERVICE_NAME,
     )
     reflection.enable_server_reflection(service_names, server)
-    server.add_insecure_port(f"[::]:{port}")
+    server.add_insecure_port(f"0.0.0.0:{port}")
     server.start()
     return server
