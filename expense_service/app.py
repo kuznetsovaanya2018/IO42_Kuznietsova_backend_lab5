@@ -13,6 +13,8 @@ from errors import AppError
 from models import AccountModel, CategoryModel, db
 from schemas import AccountSchema, CategorySchema, RecordSchema, TopUpSchema
 
+from auth import authenticate
+from rpc import INVALID_REQUEST, PARSE_ERROR, error_response, process_request
 
 def database_url():
     url = os.getenv(
@@ -224,6 +226,32 @@ def get_records():
     records = services.list_records(user_id, category_id)
     return jsonify([r.to_dict() for r in records]), 200
 
+# ---------- JSON-RPC 2.0 ----------
+
+@app.route("/rpc", methods=["POST"])
+def rpc_endpoint():
+    authenticate()  # без дійсного токена: HTTP 401
+
+    payload = request.get_json(force=True, silent=True)
+    if payload is None:
+        return jsonify(error_response(None, PARSE_ERROR, "Parse error")), 200
+
+    if isinstance(payload, list):  # Batch
+        if not payload:
+            return jsonify(error_response(None, INVALID_REQUEST, "Invalid Request")), 200
+        responses = [
+            response
+            for response in (process_request(item) for item in payload)
+            if response is not None
+        ]
+        if not responses:  # усі елементи були notification
+            return "", 204
+        return jsonify(responses), 200
+
+    response = process_request(payload)  # Single
+    if response is None:
+        return "", 204
+    return jsonify(response), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
