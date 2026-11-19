@@ -1,15 +1,17 @@
 info:
   name: Create account
   type: http
-  seq: 15
+  seq: 8
 
 http:
   method: POST
   url: "{{baseUrl}}/account"
   body:
     type: json
-    data: '{"user_id": 1}'
-  auth: inherit
+    data: '{"user_id": 2}'
+  auth:
+    type: bearer
+    token: "{{userToken}}"
 
 settings:
   encodeUrl: true

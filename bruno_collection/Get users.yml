@@ -5,8 +5,10 @@ info:
 
 http:
   method: GET
-  url: "{{baseUrl}}/users"
-  auth: inherit
+  url: "{{userUrl}}/users"
+  auth:
+    type: bearer
+    token: "{{adminToken}}"
 
 settings:
   encodeUrl: true

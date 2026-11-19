@@ -1,15 +1,17 @@
 info:
   name: Create record
   type: http
-  seq: 8
+  seq: 5
 
 http:
   method: POST
   url: "{{baseUrl}}/record"
   body:
     type: json
-    data: '{"user_id": 1, "category_id": 1, "amount": 150.50}'
-  auth: inherit
+    data: '{"user_id": 2, "category_id": 1, "amount": 100}'
+  auth:
+    type: bearer
+    token: "{{userToken}}"
 
 settings:
   encodeUrl: true

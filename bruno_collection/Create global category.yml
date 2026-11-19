@@ -1,15 +1,17 @@
 info:
-  name: Create user
+  name: Create global category
   type: http
-  seq: 2
+  seq: 4
 
 http:
   method: POST
-  url: "{{baseUrl}}/user"
+  url: "{{baseUrl}}/category/global"
   body:
     type: json
-    data: '{"name": "Оля"}'
-  auth: inherit
+    data: '{"name": "Food"}'
+  auth:
+    type: bearer
+    token: "{{adminToken}}"
 
 settings:
   encodeUrl: true

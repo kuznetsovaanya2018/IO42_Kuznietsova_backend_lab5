@@ -1,11 +1,14 @@
 info:
-  name: Delete category
+  name: Register
   type: http
-  seq: 7
+  seq: 10
 
 http:
-  method: DELETE
-  url: "{{baseUrl}}/category/1"
+  method: POST
+  url: "{{userUrl}}/register"
+  body:
+    type: json
+    data: '{"name": "olya", "password": "Password123"}'
   auth: inherit
 
 settings:
