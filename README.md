@@ -1,77 +1,56 @@
-# Лабораторна робота №4: Аутентифікація (JWT), RBAC та автотести у CI
+# Лабораторна робота №5: Мікросервісна декомпозиція
 
-REST API обліку витрат на Flask з PostgreSQL, ORM (SQLAlchemy), міграціями (Alembic), JWT-аутентифікацією, захистом паролів за Argon2id, рольовою моделлю доступу та автотестами з запуском у GitHub Actions.
+Застосунок обліку витрат розділено на два автономні мікросервіси з власними базами PostgreSQL. Сервіси взаємодіють по gRPC (HTTP/2), а зовнішнє публічне API витрат доступне також за протоколом JSON-RPC 2.0.
 
-## Індивідуальне завдання (з лабораторної №3)
+## Архітектура
 
-Номер варіанта: `V = (N % 3) + 1`, де `N` — номер залікової книжки.
+| Сервіс | Відповідальність | Порти |
+|---|---|---|
+| User Service | користувачі, `/register`, `/login`, видача та перевірка JWT, gRPC-сервер | REST 5001, gRPC 50051 |
+| Expense Service | категорії, рахунки, записи витрат, JSON-RPC `POST /rpc`, gRPC-клієнт | REST 5000 |
 
-- N = 4208
-- 4208 % 3 = 2 (4208 = 3 · 1402 + 2)
-- V = 2 + 1 = **3**
+Кожен сервіс має окрему базу (`user_db`, `expense_db`) з власними обліковими даними; доступ до чужої бази відсутній.
 
-Варіант 3: рахунки користувача (`Account`). Реалізовано поповнення рахунку (`POST /account/<id>/topup`) та автоматичне списання суми з балансу при створенні витрати (`POST /record`); якщо коштів не вистачає, повертається `400 insufficient_funds`.
+### Міжсервісна взаємодія (gRPC)
 
-## Аутентифікація
+Контракт описано в `proto/auth.proto` (сервіс `AuthService`):
 
-- `POST /register` — реєстрація (`{"name": "...", "password": "..."}`), роль за замовчуванням `user`.
-- `POST /login` — перевірка облікових даних і видача Access JWT (термін дії 1 година), ролі передаються в claim `roles`.
-- Токен передається в заголовку `Authorization: Bearer <Access Token>`.
-- Відсутній, некоректний або прострочений токен: `401 Unauthorized`.
-- Паролі зберігаються лише у вигляді хешів Argon2id (бібліотека `argon2-cffi`).
+- `ValidateToken(token)` — перевіряє JWT і повертає `is_valid`, `user_id`, `roles`. Expense Service викликає його для автентифікації кожного запиту.
+- `ValidateUser(user_id)` — повертає `exists` і `role`. Токен передається в gRPC Metadata (`authorization: Bearer <token>`). Викликається при створенні записів і рахунків.
 
-## Ролі та доступ
+Авторизація на рівні gRPC:
 
-Недостатньо прав для дії: `403 Forbidden`. Спроба звернутися до чужих даних звичайним користувачем: `404 Not Found`.
+- серверний перехоплювач `RBACServerInterceptor` (User Service) перевіряє токен і роль у Metadata до виклику методу (`UNAUTHENTICATED` / `PERMISSION_DENIED`);
+- клієнтський перехоплювач `AuthMetadataInterceptor` (Expense Service) додає токен поточного запиту до кожного gRPC-виклику.
 
-| Ендпоінт | user | auditor | admin |
-|---|---|---|---|
-| `POST /register`, `POST /login`, `GET /healthz/live`, `GET /healthz/ready` | публічні | публічні | публічні |
-| `GET /user/<id>` | лише свій | будь-який | будь-який |
-| `GET /users` | 403 | читання | так |
-| `DELETE /user/<id>`, `PATCH /user/<id>/role` | 403 | 403 | так |
-| `POST /record` | свої | 403 | так |
-| `GET /record/<id>` | лише свої | будь-які | будь-які |
-| `DELETE /record/<id>` | лише свої | 403 | будь-які |
-| `GET /record?user_id=X&category_id=Y` | лише свої | усі | усі |
-| `GET /category` | глобальні та свої | усі | усі |
-| `POST /category` | свої | 403 | так |
-| `POST /category/global`, `DELETE /category/<id>` | 403 | 403 | так |
-| `POST /account`, `POST /account/<id>/topup` | лише свій | 403 | будь-який |
-| `GET /account/<id>` | лише свій | будь-який | будь-який |
+Для генерації stubs використано: `python -m grpc_tools.protoc -I proto --python_out=<service> --grpc_python_out=<service> proto/auth.proto`.
+
+### JSON-RPC 2.0
+
+`POST /rpc` у Expense Service (заголовок `Authorization: Bearer <token>`) підтримує поодинокі та пакетні запити, notification (запити без `id`), а також стандартні помилки (`-32700`, `-32600`, `-32601`, `-32602`, `-32603`). Методи: `create_record`, `get_record`, `delete_record`, `list_records`. Код `-32600` також використовується для помилки «недостатньо прав» (згідно з діаграмою завдання).
+
+Приклад пакетного запиту:
+
+```json
+[
+  {"jsonrpc": "2.0", "method": "create_record", "params": {"user_id": 2, "category_id": 1, "amount": 100.0}, "id": 1},
+  {"jsonrpc": "2.0", "method": "create_record", "params": {"user_id": 2, "category_id": 1, "amount": 45.5}, "id": 2}
+]
+```
 
 ## Запуск
 
 ```
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-docker compose up -d
-flask --app app db upgrade
-python app.py
+docker compose up -d --build
+docker compose exec user_service flask --app app create-admin <name> <password>
 ```
 
-Сервер доступний за адресою http://127.0.0.1:5000. Змінні середовища: `DATABASE_URL` (адреса бази) та `JWT_SECRET_KEY` (секрет підпису токенів).
+Міграції застосовуються автоматично під час старту кожного сервісу. Секрет JWT задається змінною `JWT_SECRET_KEY`.
 
-Перший адміністратор створюється командою:
+## Обмеження
 
-```
-flask --app app create-admin <name> <password>
-```
-
-Решту ролей призначає адміністратор через `PATCH /user/<id>/role` (`{"role": "auditor"}`).
+Між сервісами відсутні зовнішні ключі: видалення користувача в User Service не видаляє його рахунки та записи в Expense Service (узгодженість між базами не забезпечується автоматично).
 
 ## Тестування
 
-Тести використовують окрему базу `expenses_test`:
-
-```
-docker compose exec db psql -U expenses -d expenses -c "CREATE DATABASE expenses_test;"
-pytest -v
-```
-
-Тести охоплюють реєстрацію, логін, хешування паролів, відсутній та некоректний токен (`401`), матрицю доступів усіх ролей (`403`/`404`), списання коштів з рахунку, а також перевірку часу за допомогою `freeze_time`.
-
-## CI
-
-У GitHub Actions (`.github/workflows/ci.yml`) під час кожного push запускається PostgreSQL 16 як service-контейнер, після чого виконується `pytest`.
+Колекція Bruno в папці `bruno_collection/` містить запити для REST обох сервісів, JSON-RPC (single, batch, помилки) та gRPC. Оберіть середовище `local` (змінні `baseUrl`, `userUrl`, `grpcUrl`).
